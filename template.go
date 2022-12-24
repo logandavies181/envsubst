@@ -2,8 +2,10 @@ package envsubst
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
 
 	"github.com/drone/envsubst/v2/parse"
 )
@@ -64,6 +66,8 @@ func (t *Template) eval(s *state) (err error) {
 	case *parse.TextNode:
 		err = t.evalText(s, node)
 	case *parse.FuncNode:
+		fmt.Fprintln(os.Stderr, node.String())
+		fmt.Fprintln(os.Stderr, node.Nesting())
 		err = t.evalFunc(s, node)
 	case *parse.ListNode:
 		err = t.evalList(s, node)

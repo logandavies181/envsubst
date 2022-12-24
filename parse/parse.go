@@ -30,7 +30,7 @@ func ErrParseDoubleDollar(str string) error {
 	return fmt.Errorf("unable to parse double dollar sign %s", str)
 }
 
-// Tree is the representation of a single parsed SQL statement.
+// Tree is the representation of a single parsed shell format string
 type Tree struct {
 	Root Node
 
@@ -130,6 +130,10 @@ func (t *Tree) parseBareVar() (Node, error) {
 	}
 
 	node := newFuncNode(name)
+	_, err := node.buf.Write([]byte("$" + name))
+	if err != nil {
+		return nil, err
+	}
 
 	return node, nil
 }
@@ -168,13 +172,18 @@ func (t *Tree) parseFunc() (Node, error) {
 		return t.parseRemoveFunc(name, acceptPercentFunc)
 	}
 
+	// trivial case: ${var}
+
 	t.scanner.accept = acceptIdent
 	t.scanner.mode = scanRbrack | scanIdent | scanLbrack | scanEscape
 	switch t.scanner.scan() {
 	case tokenRbrack:
-		return newFuncNode(name), nil
-	case tokenBarevar, tokenLbrack:
-		return t.parseAny()
+		node := newFuncNode(name)
+		_, err := node.buf.Write([]byte("${" + name + "}"))
+		if err != nil {
+			return nil, err
+		}
+		return node, nil
 	default:
 		return nil, ErrMissingClosingBrace
 	}
@@ -215,10 +224,10 @@ func (t *Tree) parseParam(accept acceptFunc, mode byte) (Node, error) {
 
 // parse either a default or substring substitution function.
 func (t *Tree) parseDefaultOrSubstr(name string) (Node, error) {
-	t.scanner.read()
-	r := t.scanner.peek()
-	t.scanner.unread()
-	switch r {
+	// selects between default or substr
+	// no need for writing original string to node yet
+
+	switch t.scanner.peektwo() {
 	case '=', '-', '?', '+':
 		return t.parseDefaultFunc(name)
 	default:
@@ -231,12 +240,21 @@ func (t *Tree) parseDefaultOrSubstr(name string) (Node, error) {
 func (t *Tree) parseSubstrFunc(name string) (Node, error) {
 	node := new(FuncNode)
 	node.Param = name
+	_, err := node.buf.WriteString("${" + name)
+	if err != nil {
+		return nil, err
+	}
 
 	t.scanner.accept = acceptOneColon
 	t.scanner.mode = scanIdent
 	switch t.scanner.scan() {
 	case tokenIdent:
-		node.Name = t.scanner.string()
+		nodeName := t.scanner.string()
+		node.Name = nodeName
+		_, err := node.buf.WriteString(nodeName)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, ErrBadSubstitution
 	}
@@ -248,8 +266,18 @@ func (t *Tree) parseSubstrFunc(name string) (Node, error) {
 			return nil, err
 		}
 
-		// param.Value = t.scanner.string()
-		node.Args = append(node.Args, param)
+		switch n := param.(type) {
+		case *FuncNode:
+			_, err = node.buf.WriteString(n.String())
+			if err != nil {
+				return nil, err
+			}
+			n.nesting = node.nesting + 1
+
+			node.Args = append(node.Args, n)
+		default:
+			node.Args = append(node.Args, param)
+		}
 	}
 
 	// expect delimiter or close
@@ -257,9 +285,13 @@ func (t *Tree) parseSubstrFunc(name string) (Node, error) {
 	t.scanner.mode = scanIdent | scanRbrack
 	switch t.scanner.scan() {
 	case tokenRbrack:
-		return node, nil
+		return node, t.consumeRbrack(node)
 	case tokenIdent:
-		// no-op
+		delimiter := t.scanner.string()
+		_, err := node.buf.WriteString(delimiter)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, ErrBadSubstitution
 	}
@@ -270,10 +302,22 @@ func (t *Tree) parseSubstrFunc(name string) (Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		node.Args = append(node.Args, param)
+
+		switch n := param.(type) {
+		case *FuncNode:
+			_, err = node.buf.WriteString(n.String())
+			if err != nil {
+				return nil, err
+			}
+			n.nesting = node.nesting + 1
+
+			node.Args = append(node.Args, n)
+		default:
+			node.Args = append(node.Args, param)
+		}
 	}
 
-	return node, t.consumeRbrack()
+	return node, t.consumeRbrack(node)
 }
 
 // parses the ${param%word} string function
@@ -283,12 +327,21 @@ func (t *Tree) parseSubstrFunc(name string) (Node, error) {
 func (t *Tree) parseRemoveFunc(name string, accept acceptFunc) (Node, error) {
 	node := new(FuncNode)
 	node.Param = name
+	_, err := node.buf.WriteString("${" + name)
+	if err != nil {
+		return nil, err
+	}
 
 	t.scanner.accept = accept
 	t.scanner.mode = scanIdent
 	switch t.scanner.scan() {
 	case tokenIdent:
-		node.Name = t.scanner.string()
+		nodeName := t.scanner.string()
+		node.Name = nodeName
+		_, err := node.buf.WriteString(nodeName)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, ErrBadSubstitution
 	}
@@ -300,11 +353,21 @@ func (t *Tree) parseRemoveFunc(name string, accept acceptFunc) (Node, error) {
 			return nil, err
 		}
 
-		// param.Value = t.scanner.string()
-		node.Args = append(node.Args, param)
+		switch n := param.(type) {
+		case *FuncNode:
+			_, err = node.buf.WriteString(n.String())
+			if err != nil {
+				return nil, err
+			}
+			n.nesting = node.nesting + 1
+
+			node.Args = append(node.Args, n)
+		default:
+			node.Args = append(node.Args, param)
+		}
 	}
 
-	return node, t.consumeRbrack()
+	return node, t.consumeRbrack(node)
 }
 
 // parses the ${param/pattern/string} string function
@@ -314,12 +377,21 @@ func (t *Tree) parseRemoveFunc(name string, accept acceptFunc) (Node, error) {
 func (t *Tree) parseReplaceFunc(name string) (Node, error) {
 	node := new(FuncNode)
 	node.Param = name
+	_, err := node.buf.WriteString("${" + name)
+	if err != nil {
+		return nil, err
+	}
 
 	t.scanner.accept = acceptReplaceFunc
 	t.scanner.mode = scanIdent
 	switch t.scanner.scan() {
 	case tokenIdent:
-		node.Name = t.scanner.string()
+		nodeName := t.scanner.string()
+		node.Name = nodeName
+		_, err := node.buf.WriteString(nodeName)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, ErrBadSubstitution
 	}
@@ -330,23 +402,35 @@ func (t *Tree) parseReplaceFunc(name string) (Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		node.Args = append(node.Args, param)
+
+		switch n := param.(type) {
+		case *FuncNode:
+			_, err = node.buf.WriteString(n.String())
+			if err != nil {
+				return nil, err
+			}
+			n.nesting = node.nesting + 1
+
+			node.Args = append(node.Args, n)
+		default:
+			node.Args = append(node.Args, param)
+		}
 	}
 
-	// expect delimiter
+	// expect delimiter or close
 	t.scanner.accept = acceptSlash
 	t.scanner.mode = scanIdent
 	switch t.scanner.scan() {
+	case tokenRbrack:
+		return node, t.consumeRbrack(node)
 	case tokenIdent:
-		// no-op
+		delimiter := t.scanner.string()
+		_, err := node.buf.WriteString(delimiter)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, ErrBadSubstitution
-	}
-
-	// check for blank string
-	switch t.scanner.peek() {
-	case '}':
-		return node, t.consumeRbrack()
 	}
 
 	// scan arg[2]
@@ -355,10 +439,22 @@ func (t *Tree) parseReplaceFunc(name string) (Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		node.Args = append(node.Args, param)
+
+		switch n := param.(type) {
+		case *FuncNode:
+			_, err = node.buf.WriteString(n.String())
+			if err != nil {
+				return nil, err
+			}
+			n.nesting = node.nesting + 1
+
+			node.Args = append(node.Args, n)
+		default:
+			node.Args = append(node.Args, param)
+		}
 	}
 
-	return node, t.consumeRbrack()
+	return node, t.consumeRbrack(node)
 }
 
 // parses the ${parameter=word} string function
@@ -369,6 +465,10 @@ func (t *Tree) parseReplaceFunc(name string) (Node, error) {
 func (t *Tree) parseDefaultFunc(name string) (Node, error) {
 	node := new(FuncNode)
 	node.Param = name
+	_, err := node.buf.WriteString("${" + name)
+	if err != nil {
+		return nil, err
+	}
 
 	t.scanner.accept = acceptDefaultFunc
 	if t.scanner.peek() == '=' {
@@ -377,7 +477,12 @@ func (t *Tree) parseDefaultFunc(name string) (Node, error) {
 	t.scanner.mode = scanIdent
 	switch t.scanner.scan() {
 	case tokenIdent:
-		node.Name = t.scanner.string()
+		nodeName := t.scanner.string()
+		node.Name = nodeName
+		_, err := node.buf.WriteString(nodeName)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, ErrParseDefaultFunction
 	}
@@ -387,14 +492,25 @@ func (t *Tree) parseDefaultFunc(name string) (Node, error) {
 		// this acts as the break condition. Peek to see if we reached the end
 		switch t.scanner.peek() {
 		case '}':
-			return node, t.consumeRbrack()
+			return node, t.consumeRbrack(node)
 		}
 		param, err := t.parseParam(acceptNotClosing, scanIdent)
 		if err != nil {
 			return nil, err
 		}
 
-		node.Args = append(node.Args, param)
+		switch n := param.(type) {
+		case *FuncNode:
+			_, err = node.buf.WriteString(n.String())
+			if err != nil {
+				return nil, err
+			}
+			n.nesting = node.nesting + 1
+
+			node.Args = append(node.Args, n)
+		default:
+			node.Args = append(node.Args, param)
+		}
 	}
 }
 
@@ -405,28 +521,46 @@ func (t *Tree) parseDefaultFunc(name string) (Node, error) {
 func (t *Tree) parseCasingFunc(name string) (Node, error) {
 	node := new(FuncNode)
 	node.Param = name
+	_, err := node.buf.WriteString("${" + name)
+	if err != nil {
+		return nil, err
+	}
 
 	t.scanner.accept = acceptCasingFunc
 	t.scanner.mode = scanIdent
 	switch t.scanner.scan() {
 	case tokenIdent:
-		node.Name = t.scanner.string()
+		nodeName := t.scanner.string()
+		node.Name = nodeName
+		_, err := node.buf.WriteString(nodeName)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, ErrBadSubstitution
 	}
 
-	return node, t.consumeRbrack()
+	return node, t.consumeRbrack(node)
 }
 
 // parses the ${#param} string function
 func (t *Tree) parseLenFunc() (Node, error) {
 	node := new(FuncNode)
+	_, err := node.buf.WriteString("${")
+	if err != nil {
+		return nil, err
+	}
 
 	t.scanner.accept = acceptOneHash
 	t.scanner.mode = scanIdent
 	switch t.scanner.scan() {
 	case tokenIdent:
-		node.Name = t.scanner.string()
+		nodeName := t.scanner.string()
+		node.Name = nodeName
+		_, err := node.buf.WriteString(nodeName)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, ErrBadSubstitution
 	}
@@ -435,22 +569,29 @@ func (t *Tree) parseLenFunc() (Node, error) {
 	t.scanner.mode = scanIdent
 	switch t.scanner.scan() {
 	case tokenIdent:
-		node.Param = t.scanner.string()
+		nodeParam := t.scanner.string()
+		node.Param = nodeParam
+		_, err := node.buf.WriteString(nodeParam)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, ErrBadSubstitution
 	}
 
-	return node, t.consumeRbrack()
+	return node, t.consumeRbrack(node)
 }
 
 // consumeRbrack consumes a right closing bracket. If a closing
 // bracket token is not consumed an ErrBadSubstitution is returned.
-func (t *Tree) consumeRbrack() error {
+func (t *Tree) consumeRbrack(node *FuncNode) error {
 	t.scanner.mode = scanRbrack
 	if t.scanner.scan() != tokenRbrack {
 		return ErrBadSubstitution
 	}
-	return nil
+	_, err := node.buf.Write([]byte("}"))
+
+	return err
 }
 
 // consumeDelimiter consumes a function argument delimiter. If a
