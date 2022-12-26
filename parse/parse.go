@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 )
@@ -8,6 +9,7 @@ import (
 var (
 	// ErrBadSubstitution represents a substitution parsing error.
 	ErrBadSubstitution = errors.New("bad substitution")
+	ErrBadSubstitution2 = errors.New("bad substitution")
 
 	// ErrMissingClosingBrace represents a missing closing brace "}" error.
 	ErrMissingClosingBrace = errors.New("missing closing brace")
@@ -210,6 +212,7 @@ func (t *Tree) parseParam(accept acceptFunc, mode byte) (Node, error) {
 		}
 		return newListNode(left, right), nil
 	case tokenIdent:
+		// TODO maybe add a } here?
 		return newTextNode(
 			t.scanner.string(),
 		), nil
@@ -233,6 +236,29 @@ func (t *Tree) parseDefaultOrSubstr(name string) (Node, error) {
 	default:
 		return t.parseSubstrFunc(name)
 	}
+}
+
+type nodeFormatter struct {
+	buf bytes.Buffer
+}
+
+func (f *nodeFormatter) getFormat(node Node) {
+	switch n := node.(type) {
+	case *TextNode:
+		f.buf.WriteString(n.Value)
+	case *ListNode:
+		for _, item := range n.Nodes {
+			f.buf.WriteString(formatNode(item))
+		}
+	case *FuncNode:
+		f.buf.WriteString(n.String())
+	}
+}
+
+func formatNode(node Node) string {
+	f := new(nodeFormatter)
+	f.getFormat(node)
+	return f.buf.String()
 }
 
 // parses the ${param:offset} string function
@@ -266,12 +292,13 @@ func (t *Tree) parseSubstrFunc(name string) (Node, error) {
 			return nil, err
 		}
 
+		_, err = node.buf.WriteString(formatNode(param))
+		if err != nil {
+			return nil, err
+		}
+
 		switch n := param.(type) {
 		case *FuncNode:
-			_, err = node.buf.WriteString(n.String())
-			if err != nil {
-				return nil, err
-			}
 			n.nesting = node.nesting + 1
 
 			node.Args = append(node.Args, n)
@@ -285,6 +312,7 @@ func (t *Tree) parseSubstrFunc(name string) (Node, error) {
 	t.scanner.mode = scanIdent | scanRbrack
 	switch t.scanner.scan() {
 	case tokenRbrack:
+		t.scanner.unread()
 		return node, t.consumeRbrack(node)
 	case tokenIdent:
 		delimiter := t.scanner.string()
@@ -303,12 +331,13 @@ func (t *Tree) parseSubstrFunc(name string) (Node, error) {
 			return nil, err
 		}
 
+		_, err = node.buf.WriteString(formatNode(param))
+		if err != nil {
+			return nil, err
+		}
+
 		switch n := param.(type) {
 		case *FuncNode:
-			_, err = node.buf.WriteString(n.String())
-			if err != nil {
-				return nil, err
-			}
 			n.nesting = node.nesting + 1
 
 			node.Args = append(node.Args, n)
@@ -353,12 +382,13 @@ func (t *Tree) parseRemoveFunc(name string, accept acceptFunc) (Node, error) {
 			return nil, err
 		}
 
+		_, err = node.buf.WriteString(formatNode(param))
+		if err != nil {
+			return nil, err
+		}
+
 		switch n := param.(type) {
 		case *FuncNode:
-			_, err = node.buf.WriteString(n.String())
-			if err != nil {
-				return nil, err
-			}
 			n.nesting = node.nesting + 1
 
 			node.Args = append(node.Args, n)
@@ -403,12 +433,13 @@ func (t *Tree) parseReplaceFunc(name string) (Node, error) {
 			return nil, err
 		}
 
+		_, err = node.buf.WriteString(formatNode(param))
+		if err != nil {
+			return nil, err
+		}
+
 		switch n := param.(type) {
 		case *FuncNode:
-			_, err = node.buf.WriteString(n.String())
-			if err != nil {
-				return nil, err
-			}
 			n.nesting = node.nesting + 1
 
 			node.Args = append(node.Args, n)
@@ -440,12 +471,13 @@ func (t *Tree) parseReplaceFunc(name string) (Node, error) {
 			return nil, err
 		}
 
+		_, err = node.buf.WriteString(formatNode(param))
+		if err != nil {
+			return nil, err
+		}
+
 		switch n := param.(type) {
 		case *FuncNode:
-			_, err = node.buf.WriteString(n.String())
-			if err != nil {
-				return nil, err
-			}
 			n.nesting = node.nesting + 1
 
 			node.Args = append(node.Args, n)
@@ -499,12 +531,13 @@ func (t *Tree) parseDefaultFunc(name string) (Node, error) {
 			return nil, err
 		}
 
+		_, err = node.buf.WriteString(formatNode(param))
+		if err != nil {
+			return nil, err
+		}
+
 		switch n := param.(type) {
 		case *FuncNode:
-			_, err = node.buf.WriteString(n.String())
-			if err != nil {
-				return nil, err
-			}
 			n.nesting = node.nesting + 1
 
 			node.Args = append(node.Args, n)
@@ -593,14 +626,3 @@ func (t *Tree) consumeRbrack(node *FuncNode) error {
 
 	return err
 }
-
-// consumeDelimiter consumes a function argument delimiter. If a
-// delimiter is not consumed an ErrBadSubstitution is returned.
-// func (t *Tree) consumeDelimiter(accept acceptFunc, mode uint) error {
-// 	t.scanner.accept = accept
-// 	t.scanner.mode = mode
-// 	if t.scanner.scan() != tokenRbrack {
-// 		return ErrBadSubstitution
-// 	}
-// 	return nil
-// }

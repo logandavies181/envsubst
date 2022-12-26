@@ -24,6 +24,7 @@ type (
 		Name  string
 		Args  []Node
 
+		// TODO handle nesting above 1
 		nesting int
 		buf bytes.Buffer
 	}
