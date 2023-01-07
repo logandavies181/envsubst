@@ -5,7 +5,7 @@ import (
 	"io"
 	"io/ioutil"
 
-	"github.com/drone/envsubst/v2/parse"
+	"github.com/logandavies181/envsubst/parse"
 )
 
 // state represents the state of template execution. It is not part of the
@@ -17,6 +17,8 @@ type state struct {
 
 	// maps variable names to values
 	mapper func(string) string
+
+	advMapper AdvancedMapping
 }
 
 // Template is the representation of a parsed shell format string.
