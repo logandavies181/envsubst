@@ -1,10 +1,15 @@
 package parse
 
 import (
+	"bytes"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
 )
+
+func buf(s string) bytes.Buffer {
+	return *bytes.NewBuffer([]byte(s))
+}
 
 var tests = []struct {
 	Text string
@@ -28,11 +33,17 @@ var tests = []struct {
 	},
 	{
 		Text: "$${string}",
-		Node: &ListNode{Nodes: []Node{&TextNode{Value: "$"}, &FuncNode{Param: "string"}}},
+		Node: &ListNode{Nodes: []Node{&TextNode{Value: "$"}, &FuncNode{
+			Param: "string",
+			buf: buf("${string}"),
+		}}},
 	},
 	{
 		Text: "$$string",
-		Node: &ListNode{Nodes: []Node{&TextNode{Value: "$"}, &FuncNode{Param: "string"}}},
+		Node: &ListNode{Nodes: []Node{&TextNode{Value: "$"}, &FuncNode{
+			Param: "string",
+			buf: buf("$string"),
+		}}},
 	},
 	{
 		Text: `\\.\pipe\pipename`,
@@ -44,7 +55,7 @@ var tests = []struct {
 	//
 	{
 		Text: "${string}",
-		Node: &FuncNode{Param: "string"},
+		Node: &FuncNode{Param: "string", buf: buf("${string}")},
 	},
 
 	//
@@ -56,6 +67,7 @@ var tests = []struct {
 			Param: "string",
 			Name:  ",",
 			Args:  nil,
+			buf: buf("${string,}"),
 		},
 	},
 	{
@@ -64,6 +76,7 @@ var tests = []struct {
 			Param: "string",
 			Name:  ",,",
 			Args:  nil,
+			buf: buf("${string,,}"),
 		},
 	},
 	{
@@ -72,6 +85,7 @@ var tests = []struct {
 			Param: "string",
 			Name:  "^",
 			Args:  nil,
+			buf: buf("${string^}"),
 		},
 	},
 	{
@@ -80,6 +94,7 @@ var tests = []struct {
 			Param: "string",
 			Name:  "^^",
 			Args:  nil,
+			buf: buf("${string^^}"),
 		},
 	},
 
@@ -94,6 +109,7 @@ var tests = []struct {
 			Args: []Node{
 				&TextNode{Value: "position"},
 			},
+			buf: buf("${string:position}"),
 		},
 	},
 	{
@@ -105,6 +121,7 @@ var tests = []struct {
 				&TextNode{Value: "position"},
 				&TextNode{Value: "length"},
 			},
+			buf: buf("${string:position:length}"),
 		},
 	},
 
@@ -119,6 +136,7 @@ var tests = []struct {
 			Args: []Node{
 				&TextNode{Value: "substring"},
 			},
+			buf: buf("${string#substring}"),
 		},
 	},
 	{
@@ -129,6 +147,7 @@ var tests = []struct {
 			Args: []Node{
 				&TextNode{Value: "substring"},
 			},
+			buf: buf("${string##substring}"),
 		},
 	},
 	{
@@ -139,6 +158,7 @@ var tests = []struct {
 			Args: []Node{
 				&TextNode{Value: "substring"},
 			},
+			buf: buf("${string%substring}"),
 		},
 	},
 	{
@@ -149,6 +169,7 @@ var tests = []struct {
 			Args: []Node{
 				&TextNode{Value: "substring"},
 			},
+			buf: buf("${string%%substring}"),
 		},
 	},
 
@@ -164,6 +185,7 @@ var tests = []struct {
 				&TextNode{Value: "substring"},
 				&TextNode{Value: "replacement"},
 			},
+			buf: buf("${string/substring/replacement}"),
 		},
 	},
 	{
@@ -175,6 +197,7 @@ var tests = []struct {
 				&TextNode{Value: "substring"},
 				&TextNode{Value: "replacement"},
 			},
+			buf: buf("${string//substring/replacement}"),
 		},
 	},
 	{
@@ -186,6 +209,7 @@ var tests = []struct {
 				&TextNode{Value: "substring"},
 				&TextNode{Value: "replacement"},
 			},
+			buf: buf("${string/#substring/replacement}"),
 		},
 	},
 	{
@@ -197,6 +221,7 @@ var tests = []struct {
 				&TextNode{Value: "substring"},
 				&TextNode{Value: "replacement"},
 			},
+			buf: buf("${string/%substring/replacement}"),
 		},
 	},
 
@@ -211,6 +236,7 @@ var tests = []struct {
 			Args: []Node{
 				&TextNode{Value: "default"},
 			},
+			buf: buf("${string=default}"),
 		},
 	},
 	{
@@ -221,6 +247,7 @@ var tests = []struct {
 			Args: []Node{
 				&TextNode{Value: "default"},
 			},
+			buf: buf("${string:=default}"),
 		},
 	},
 	{
@@ -231,6 +258,7 @@ var tests = []struct {
 			Args: []Node{
 				&TextNode{Value: "default"},
 			},
+			buf: buf("${string:-default}"),
 		},
 	},
 	{
@@ -241,6 +269,7 @@ var tests = []struct {
 			Args: []Node{
 				&TextNode{Value: "default"},
 			},
+			buf: buf("${string:?default}"),
 		},
 	},
 	{
@@ -251,6 +280,7 @@ var tests = []struct {
 			Args: []Node{
 				&TextNode{Value: "default"},
 			},
+			buf: buf("${string:+default}"),
 		},
 	},
 
@@ -262,6 +292,7 @@ var tests = []struct {
 		Node: &FuncNode{
 			Param: "string",
 			Name:  "#",
+			buf: buf("${#string}"),
 		},
 	},
 
@@ -276,6 +307,7 @@ var tests = []struct {
 			Args: []Node{
 				&TextNode{Value: "$%:*{"},
 			},
+			buf: buf("${string#$%:*{}"),
 		},
 	},
 
@@ -292,6 +324,7 @@ var tests = []struct {
 						&FuncNode{
 							Param: "string",
 							Name:  "#",
+							buf: buf("${#string}"),
 						},
 						&TextNode{
 							Value: " world",
@@ -314,6 +347,7 @@ var tests = []struct {
 						&FuncNode{
 							Param: "string",
 							Name:  "#",
+							buf: buf("${#string}"),
 						},
 						&TextNode{
 							Value: ` world \\`,
@@ -323,6 +357,9 @@ var tests = []struct {
 			},
 		},
 	},
+
+	// TODO
+	// Tests from here down are broken
 
 	// escaped function arguments
 	{
@@ -338,6 +375,7 @@ var tests = []struct {
 					Value: "length",
 				},
 			},
+			buf: buf(`${string/\/position/length}`),
 		},
 	},
 	{
@@ -510,6 +548,7 @@ var tests = []struct {
 				&FuncNode{Param: "stringy"},
 				&FuncNode{Param: "stringz"},
 			},
+			buf: buf("${string//${stringy}/${stringz}}"),
 		},
 	},
 }
@@ -522,9 +561,7 @@ func TestParse(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if diff := cmp.Diff(test.Node, got.Root); diff != "" {
-				t.Fatalf(diff)
-			}
+			assert.Equal(t, test.Node, got.Root)
 		})
 	}
 }
