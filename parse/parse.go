@@ -452,8 +452,6 @@ func (t *Tree) parseReplaceFunc(name string) (Node, error) {
 	t.scanner.accept = acceptSlash
 	t.scanner.mode = scanIdent
 	switch t.scanner.scan() {
-	case tokenRbrack:
-		return node, t.consumeRbrack(node)
 	case tokenIdent:
 		delimiter := t.scanner.string()
 		_, err := node.buf.WriteString(delimiter)
@@ -462,6 +460,12 @@ func (t *Tree) parseReplaceFunc(name string) (Node, error) {
 		}
 	default:
 		return nil, ErrBadSubstitution
+	}
+
+	// check for blank string
+	switch t.scanner.peek() {
+	case '}':
+		return node, t.consumeRbrack(node)
 	}
 
 	// scan arg[2]
