@@ -3,13 +3,14 @@ package envsubst
 import (
 	"bytes"
 	"io"
-	"os"
 
 	"github.com/logandavies181/envsubst/parse"
 )
 
 type NodeInfo struct {
 	node parse.Node
+	args []string
+	name string
 }
 
 // Orig returns the original text of the substitution template,
@@ -17,6 +18,25 @@ type NodeInfo struct {
 // for custom mapping functions or leave expressions un-evaluated
 func (n NodeInfo) Orig() string {
 	return parse.FormatNode(n.node)
+}
+
+// Args returns the arguments to the shell-style substitution function
+func (n NodeInfo) Args() []string {
+	return n.args
+}
+
+// Fn returns the string representing the shell-style substitution function
+// e.g. `:-`
+func (n NodeInfo) Fn() string {
+	return n.name
+}
+
+// Result returns the value that will be set by the substitution function
+// if it runs
+func (n NodeInfo) Result(mapResult string) string {
+	fn := lookupFunc(n.Fn(), len(n.Args()))
+
+	return fn(mapResult, n.Args()...)
 }
 
 // AdvancedMapping is a function that takes a variable name and
@@ -43,7 +63,6 @@ func (t *Template) ExecuteAdvanced(mapping AdvancedMapping) (str string, err err
 	b := new(bytes.Buffer)
 	s := new(state)
 	s.node = t.tree.Root
-	s.mapper = os.Getenv
 	s.advMapper = mapping
 	s.writer = b
 	err = t.evalAdvanced(s)
@@ -77,13 +96,6 @@ func (t *Template) evalAdvancedList(s *state, node *parse.ListNode) (err error) 
 }
 
 func (t *Template) evalAdvancedFunc(s *state, node *parse.FuncNode) error {
-	val, shouldContinue := s.advMapper(node.Param, NodeInfo{node})
-
-	if !shouldContinue {
-		_, err := io.WriteString(s.writer, val)
-		return err
-	}
-
 	var w = s.writer
 	var buf bytes.Buffer
 	var args []string
@@ -103,7 +115,11 @@ func (t *Template) evalAdvancedFunc(s *state, node *parse.FuncNode) error {
 	s.writer = w
 	s.node = node
 
-	v := s.mapper(node.Param)
+	v, shouldContinue := s.advMapper(node.Param, NodeInfo{node, args, node.Name})
+	if !shouldContinue {
+		_, err := io.WriteString(s.writer, v)
+		return err
+	}
 
 	fn := lookupFunc(node.Name, len(args))
 
