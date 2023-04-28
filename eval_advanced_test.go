@@ -1,6 +1,7 @@
 package envsubst
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,7 +9,7 @@ import (
 
 func TestEvalAdvanced(t *testing.T) {
 	m := func(in string, n NodeInfo) (string, bool) {
-		return in, true
+		return os.Getenv(in), true
 	}
 
 	out, err := EvalAdvanced(`"${var:-5011}"`, m)
